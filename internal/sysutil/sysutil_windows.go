@@ -44,7 +44,6 @@ func AttachParentConsole() {
 
 func SetGUIProcessAttrs(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &windows.SysProcAttr{
-		HideWindow:    true,
 		CreationFlags: windows.CREATE_NO_WINDOW,
 	}
 }
