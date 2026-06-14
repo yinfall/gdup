@@ -37,7 +37,7 @@ func CmdUse(version string) {
 	}
 
 	cwd, _ := os.Getwd()
-	configPath := filepath.Join(cwd, ".gvm")
+	configPath := filepath.Join(cwd, ".gvmrc")
 	if err := WriteGvmConfig(configPath, matched.Version); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to write configuration file '%s': %v\n", configPath, err)
 		os.Exit(1)

@@ -6,18 +6,18 @@ import (
 	"path/filepath"
 )
 
-// GvmConfig represents the .gvm configuration file.
+// GvmConfig represents the .gvmrc configuration file.
 type GvmConfig struct {
 	Version string `json:"version"`
 }
 
-// FindGvmConfig searches for .gvm file from cwd upwards, then in home directory.
+// FindGvmConfig searches for .gvmrc file from cwd upwards, then in home directory.
 func FindGvmConfig() string {
 	cwd, err := os.Getwd()
 	if err == nil {
 		dir := cwd
 		for {
-			p := filepath.Join(dir, ".gvm")
+			p := filepath.Join(dir, ".gvmrc")
 			if info, err := os.Stat(p); err == nil && !info.IsDir() {
 				return p
 			}
@@ -31,7 +31,7 @@ func FindGvmConfig() string {
 
 	home, err := os.UserHomeDir()
 	if err == nil {
-		p := filepath.Join(home, ".gvm")
+		p := filepath.Join(home, ".gvmrc")
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p
 		}
@@ -40,7 +40,7 @@ func FindGvmConfig() string {
 	return ""
 }
 
-// ReadGvmConfig reads and parses a .gvm config file.
+// ReadGvmConfig reads and parses a .gvmrc config file.
 func ReadGvmConfig(path string) (*GvmConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -53,7 +53,7 @@ func ReadGvmConfig(path string) (*GvmConfig, error) {
 	return &cfg, nil
 }
 
-// WriteGvmConfig writes a .gvm config file at the given path.
+// WriteGvmConfig writes a .gvmrc config file at the given path.
 func WriteGvmConfig(path string, version string) error {
 	cfg := GvmConfig{Version: version}
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -63,7 +63,7 @@ func WriteGvmConfig(path string, version string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// GetActiveVersion returns the active version from .gvm config, or empty string.
+// GetActiveVersion returns the active version from .gvmrc config, or empty string.
 func GetActiveVersion() string {
 	configPath := FindGvmConfig()
 	if configPath == "" {

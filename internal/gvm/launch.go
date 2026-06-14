@@ -18,7 +18,7 @@ func CmdLaunch() {
 		os.Exit(1)
 	}
 
-	// Read .gvm config
+	// Read .gvmrc config
 	configPath := FindGvmConfig()
 	var version string
 	if configPath != "" {
