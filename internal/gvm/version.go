@@ -1,8 +1,6 @@
-package gvmcore
+package gvm
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,7 +16,7 @@ type VersionInfo struct {
 	Patch      int
 	StatusRank int
 	StatusNum  int
-	Original   string // the version string as found in filename
+	Original   string
 }
 
 var statusOrder = map[string]int{
@@ -48,7 +46,6 @@ func ParseVersionFromFilename(filename string) VersionInfo {
 		status = match[4]
 	}
 
-	// Extract letters for status ranking
 	statusType := lettersOnly(strings.ToLower(status))
 	statusNum := trailingDigits(status)
 
@@ -57,7 +54,6 @@ func ParseVersionFromFilename(filename string) VersionInfo {
 		rank = 0
 	}
 
-	// Extract the version string
 	vStr := ""
 	vMatch := versionStrRegex.FindStringSubmatch(filename)
 	if vMatch != nil {
@@ -83,6 +79,12 @@ func NormalizeVersion(version string) string {
 	return tag
 }
 
+// NormalizeVersionTag trims 'v' prefix and lowercases.
+func NormalizeVersionTag(version string) string {
+	v := strings.TrimPrefix(version, "v")
+	return strings.ToLower(v)
+}
+
 // VersionMatches checks if a version string matches a target (case-insensitive, ignoring -stable).
 func VersionMatches(v, target string) bool {
 	v = strings.ToLower(v)
@@ -93,108 +95,8 @@ func VersionMatches(v, target string) bool {
 	return strings.ReplaceAll(v, "-stable", "") == strings.ReplaceAll(target, "-stable", "")
 }
 
-// GvmConfig represents the .gvm configuration file.
-type GvmConfig struct {
-	Version string `json:"version"`
-}
-
-// FindGvmConfig searches for .gvm file from cwd upwards, then in home directory.
-func FindGvmConfig() string {
-	cwd, err := os.Getwd()
-	if err == nil {
-		dir := cwd
-		for {
-			p := filepath.Join(dir, ".gvm")
-			if info, err := os.Stat(p); err == nil && !info.IsDir() {
-				return p
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
-
-	home, err := os.UserHomeDir()
-	if err == nil {
-		p := filepath.Join(home, ".gvm")
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
-		}
-	}
-
-	return ""
-}
-
-// ReadGvmConfig reads and parses a .gvm config file.
-func ReadGvmConfig(path string) (*GvmConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var cfg GvmConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-// GetActiveVersion returns the active version from .gvm config, or empty string.
-func GetActiveVersion() string {
-	configPath := FindGvmConfig()
-	if configPath == "" {
-		return ""
-	}
-	cfg, err := ReadGvmConfig(configPath)
-	if err != nil {
-		return ""
-	}
-	v := cfg.Version
-	v = strings.TrimPrefix(v, "v")
-	return strings.ToLower(v)
-}
-
-// InstalledVersion holds info about an installed version.
-type InstalledVersion struct {
-	Version string   // e.g. "4.6.3-stable"
-	Files   []string // filenames
-}
-
-// GetInstalledVersions scans the godot-versions directory.
-func GetInstalledVersions(godotDir string) ([]InstalledVersion, error) {
-	entries, err := os.ReadDir(godotDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read directory '%s': %w", godotDir, err)
-	}
-
-	groups := map[string][]string{}
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasSuffix(strings.ToLower(name), ".exe") {
-			vInfo := ParseVersionFromFilename(name)
-			if vInfo.Original != "" {
-				groups[vInfo.Original] = append(groups[vInfo.Original], name)
-			}
-		}
-	}
-
-	var result []InstalledVersion
-	for v, files := range groups {
-		result = append(result, InstalledVersion{Version: v, Files: files})
-	}
-
-	// Sort descending
-	sort.Slice(result, func(i, j int) bool {
-		vi := ParseVersionFromFilename(result[i].Files[0])
-		vj := ParseVersionFromFilename(result[j].Files[0])
-		return compareVersionInfo(vi, vj) > 0
-	})
-
-	return result, nil
-}
-
-func compareVersionInfo(a, b VersionInfo) int {
+// CompareVersionInfo compares two VersionInfo for sorting.
+func CompareVersionInfo(a, b VersionInfo) int {
 	if a.Major != b.Major {
 		return a.Major - b.Major
 	}
@@ -208,6 +110,19 @@ func compareVersionInfo(a, b VersionInfo) int {
 		return a.StatusRank - b.StatusRank
 	}
 	return a.StatusNum - b.StatusNum
+}
+
+// LatestByVersion returns the latest file from a list by version sorting.
+func LatestByVersion(files []string) string {
+	sort.Slice(files, func(i, j int) bool {
+		vi := ParseVersionFromFilename(files[i])
+		vj := ParseVersionFromFilename(files[j])
+		return CompareVersionInfo(vi, vj) < 0
+	})
+	if len(files) > 0 {
+		return files[len(files)-1]
+	}
+	return ""
 }
 
 // GetGodotDir returns the godot-versions directory path.
@@ -233,7 +148,7 @@ func PlatformSuffix() string {
 	case "linux/amd64":
 		return "_linux"
 	default:
-		return "_win64" // fallback
+		return "_win64"
 	}
 }
 

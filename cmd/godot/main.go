@@ -3,166 +3,101 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"sort"
+	"runtime"
 	"strings"
 
-	"github.com/user/gvm/internal/gvmcore"
-
+	"github.com/user/gvm/internal/gvm"
 	"github.com/user/gvm/internal/sysutil"
 )
+
+// GVM sub-commands that are handled by gvm logic.
+// Any other argument is forwarded to the real Godot binary.
+var gvmCommands = map[string]bool{
+	"install":   true,
+	"uninstall": true,
+	"remove":    true,
+	"use":       true,
+	"list":      true,
+	"ls":        true,
+	"releases":  true,
+	"release":   true,
+}
 
 func main() {
 	// Attach to parent console (needed when compiled with -H windowsgui)
 	sysutil.AttachParentConsole()
 
-	godotDir := gvmcore.GetGodotDir()
-	if _, err := os.Stat(godotDir); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: Godot installation directory '%s' does not exist.\n", godotDir)
-		os.Exit(1)
+	if len(os.Args) < 2 {
+		// No arguments: launch Godot editor
+		gvm.CmdLaunch()
+		return
 	}
 
-	// Read .gvm config
-	configPath := gvmcore.FindGvmConfig()
-	var version string
-	if configPath != "" {
-		cfg, err := gvmcore.ReadGvmConfig(configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to parse configuration file '%s': %v\n", configPath, err)
-		} else {
-			version = cfg.Version
+	first := strings.ToLower(os.Args[1])
+
+	switch {
+	case first == "--help" || first == "-h" || first == "help":
+		printHelp()
+	case first == "--gvm-version":
+		fmt.Printf("gvm %s (%s/%s)\n", gvm.GVMVersion, runtime.GOOS, runtime.GOARCH)
+	case gvmCommands[first]:
+		handleGVMCommand(first)
+	default:
+		// Not a gvm command: forward everything to Godot
+		gvm.CmdLaunch()
+	}
+}
+
+func handleGVMCommand(cmd string) {
+	switch cmd {
+	case "list", "ls":
+		gvm.CmdList()
+	case "releases", "release":
+		showAll := false
+		if len(os.Args) > 2 && (os.Args[2] == "-a" || os.Args[2] == "--all") {
+			showAll = true
 		}
-	}
-
-	// List all executables in godot-versions directory
-	entries, err := os.ReadDir(godotDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to list directory '%s': %v\n", godotDir, err)
-		os.Exit(1)
-	}
-
-	exeExt := gvmcore.ExeExtension()
-	var binaries []string
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasSuffix(strings.ToLower(name), exeExt) && !e.IsDir() {
-			binaries = append(binaries, name)
-		}
-	}
-
-	if len(binaries) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: No executables found in '%s'.\n", godotDir)
-		os.Exit(1)
-	}
-
-	var selectedExe string
-
-	if version != "" {
-		normVersion := strings.TrimPrefix(version, "v")
-		normVersion = strings.ToLower(normVersion)
-
-		// Filter binaries matching the version
-		var matches []string
-		for _, b := range binaries {
-			if strings.Contains(strings.ToLower(b), normVersion) {
-				matches = append(matches, b)
-			}
-		}
-
-		if len(matches) == 0 {
-			fmt.Fprintf(os.Stderr, "Error: No Godot binary matching version '%s' found in '%s'.\n", version, godotDir)
-			fmt.Fprintln(os.Stderr, "Available binaries in directory:")
-			for _, b := range binaries {
-				fmt.Fprintf(os.Stderr, "  - %s\n", b)
-			}
+		gvm.CmdReleases(showAll)
+	case "install":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Error: Please specify the version to install. E.g.: godot install 4.6.3")
 			os.Exit(1)
 		}
-
-		// Prefer GUI (non-console) binary for interactive use
-		var guiMatches, consoleMatches []string
-		for _, m := range matches {
-			if strings.Contains(strings.ToLower(m), "_console") {
-				consoleMatches = append(consoleMatches, m)
-			} else {
-				guiMatches = append(guiMatches, m)
-			}
+		gvm.CmdInstall(os.Args[2])
+	case "use":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Error: Please specify the version to use. E.g.: godot use 4.6.3")
+			os.Exit(1)
 		}
-
-		if len(guiMatches) > 0 {
-			selectedExe = latestByVersion(guiMatches)
-		} else {
-			selectedExe = latestByVersion(consoleMatches)
+		gvm.CmdUse(os.Args[2])
+	case "uninstall", "remove":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Error: Please specify the version to uninstall. E.g.: godot uninstall 4.6.3")
+			os.Exit(1)
 		}
-	} else {
-		// No version specified, fallback to latest
-		var guiBinaries, consoleBinaries []string
-		for _, b := range binaries {
-			if strings.Contains(strings.ToLower(b), "_console") {
-				consoleBinaries = append(consoleBinaries, b)
-			} else {
-				guiBinaries = append(guiBinaries, b)
-			}
-		}
-
-		if len(guiBinaries) > 0 {
-			selectedExe = latestByVersion(guiBinaries)
-		} else {
-			selectedExe = latestByVersion(consoleBinaries)
-		}
-	}
-
-	if selectedExe == "" {
-		fmt.Fprintln(os.Stderr, "Error: Could not find or access a suitable Godot executable.")
-		os.Exit(1)
-	}
-
-	exePath := filepath.Join(godotDir, selectedExe)
-
-	// Launch Godot: resolve version, then directly forward to the real binary.
-	// stdio is passed through — the shim does not sit in the data path.
-	cmd := exec.Command(exePath, os.Args[1:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if !strings.Contains(strings.ToLower(selectedExe), "_console") {
-		sysutil.SetGUIProcessAttrs(cmd)
-	}
-
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-		fmt.Fprintf(os.Stderr, "Error: Failed to execute Godot binary: %v\n", err)
-		os.Exit(1)
+		force := len(os.Args) > 3 && (os.Args[3] == "-y" || os.Args[3] == "--yes")
+		gvm.CmdUninstall(os.Args[2], force)
 	}
 }
 
-func latestByVersion(files []string) string {
-	sort.Slice(files, func(i, j int) bool {
-		vi := gvmcore.ParseVersionFromFilename(files[i])
-		vj := gvmcore.ParseVersionFromFilename(files[j])
-		return compareVersionInfo(vi, vj) < 0
-	})
-	if len(files) > 0 {
-		return files[len(files)-1]
-	}
-	return ""
-}
+func printHelp() {
+	godotDir := gvm.GetGodotDir()
+	fmt.Printf(`Godot Version Manager (GVM) %s
 
-func compareVersionInfo(a, b gvmcore.VersionInfo) int {
-	if a.Major != b.Major {
-		return a.Major - b.Major
-	}
-	if a.Minor != b.Minor {
-		return a.Minor - b.Minor
-	}
-	if a.Patch != b.Patch {
-		return a.Patch - b.Patch
-	}
-	if a.StatusRank != b.StatusRank {
-		return a.StatusRank - b.StatusRank
-	}
-	return a.StatusNum - b.StatusNum
+Usage:
+  godot                             Launch Godot editor (forwards to the active version)
+  godot [flags...]                  Forward flags to Godot (e.g. godot --version, godot --editor)
+  godot install <version>           Download and install a specific Godot version (e.g. 4.6.3)
+  godot list | ls                   Show locally installed Godot versions in %s
+  godot releases [-a]               List available releases from GitHub (use -a/--all for pre-releases)
+  godot use <version>               Set the active Godot version for the current directory
+  godot uninstall <version> [-y]    Uninstall a locally installed version (-y to skip confirmation)
+  godot --gvm-version               Show GVM version
+
+Example:
+  godot install 4.6.3
+  godot use 4.6.3
+  godot --editor
+  godot --version
+`, gvm.GVMVersion, godotDir)
 }
