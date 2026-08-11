@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -118,6 +119,15 @@ func CmdLaunch() {
 	if !strings.Contains(strings.ToLower(selectedExe), "_console") {
 		sysutil.SetGUIProcessAttrs(cmd)
 	}
+
+	// Ignore signals so the parent process doesn't exit immediately on Ctrl+C.
+	// This allows the child process to handle the signal and exit gracefully,
+	// preventing terminal state corruption.
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		<-c
+	}()
 
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

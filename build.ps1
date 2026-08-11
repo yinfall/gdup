@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$ldflags = "-s -w -H windowsgui"
+$ldflags = "-s -w"
 
 Write-Host "Building godot.exe..." -ForegroundColor Cyan
 go build -ldflags $ldflags -trimpath -o godot.exe ./cmd/godot
