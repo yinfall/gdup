@@ -1,6 +1,8 @@
 godot-versions/
 godot
 godot.exe
-.gvmrc
+.gduprc
 .pi/
 go.mod.bak
+gdup
+gdup.exe
