@@ -1,8 +1,8 @@
 # Executables
-gdup
-gdup.exe
-godot
-godot.exe
+/gdup
+/gdup.exe
+/godot
+/godot.exe
 
 # Local configs and caches
 .gduprc
