@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on tags like v1.0.0
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: ''
+          - goos: linux
+            goarch: arm64
+            suffix: ''
+          - goos: darwin
+            goarch: amd64
+            suffix: ''
+          - goos: darwin
+            goarch: arm64
+            suffix: ''
+          - goos: windows
+            goarch: amd64
+            suffix: '.exe'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -ldflags "-s -w" -trimpath -o gdup-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/gdup
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: gdup-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
