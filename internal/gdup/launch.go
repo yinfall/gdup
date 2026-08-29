@@ -11,6 +11,8 @@ import (
 	"github.com/user/gdup/internal/sysutil"
 )
 
+
+
 // CmdLaunch resolves the active Godot version and forwards all arguments to it.
 func CmdLaunch() {
 	godotDir := GetGodotDir()
@@ -31,77 +33,51 @@ func CmdLaunch() {
 		}
 	}
 
-	// List all executables in godot-versions directory
-	entries, err := os.ReadDir(godotDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to list directory '%s': %v\n", godotDir, err)
+	installed, err := GetInstalledVersions(godotDir)
+	if err != nil || len(installed) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: No Godot executables found in '%s'.\n", godotDir)
 		os.Exit(1)
 	}
 
-	exeExt := ExeExtension()
-	var binaries []string
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasSuffix(strings.ToLower(name), exeExt) && !e.IsDir() {
-			binaries = append(binaries, name)
+	var targetVersion *InstalledVersion
+	if version != "" {
+		var candidates []string
+		for _, iv := range installed {
+			candidates = append(candidates, iv.Version)
 		}
+
+		bestMatch := QueryBestMatch(candidates, version, "")
+		if bestMatch != "" {
+			for _, iv := range installed {
+				if iv.Version == bestMatch {
+					targetVersion = &iv
+					break
+				}
+			}
+		}
+	} else {
+		targetVersion = &installed[0]
 	}
 
-	if len(binaries) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: No executables found in '%s'.\n", godotDir)
+	if targetVersion == nil {
+		fmt.Fprintf(os.Stderr, "Error: No Godot version matching '%s' found in '%s'.\n", version, godotDir)
 		os.Exit(1)
+	}
+
+	var guiFiles, consoleFiles []string
+	for _, f := range targetVersion.Files {
+		if strings.Contains(strings.ToLower(f), "_console") {
+			consoleFiles = append(consoleFiles, f)
+		} else {
+			guiFiles = append(guiFiles, f)
+		}
 	}
 
 	var selectedExe string
-
-	if version != "" {
-		normVersion := NormalizeVersionTag(version)
-
-		var matches []string
-		for _, b := range binaries {
-			if strings.Contains(strings.ToLower(b), normVersion) {
-				matches = append(matches, b)
-			}
-		}
-
-		if len(matches) == 0 {
-			fmt.Fprintf(os.Stderr, "Error: No Godot binary matching version '%s' found in '%s'.\n", version, godotDir)
-			fmt.Fprintln(os.Stderr, "Available binaries in directory:")
-			for _, b := range binaries {
-				fmt.Fprintf(os.Stderr, "  - %s\n", b)
-			}
-			os.Exit(1)
-		}
-
-		var guiMatches, consoleMatches []string
-		for _, m := range matches {
-			if strings.Contains(strings.ToLower(m), "_console") {
-				consoleMatches = append(consoleMatches, m)
-			} else {
-				guiMatches = append(guiMatches, m)
-			}
-		}
-
-		if len(guiMatches) > 0 {
-			selectedExe = LatestByVersion(guiMatches)
-		} else {
-			selectedExe = LatestByVersion(consoleMatches)
-		}
-	} else {
-		var guiBinaries, consoleBinaries []string
-		for _, b := range binaries {
-			if strings.Contains(strings.ToLower(b), "_console") {
-				consoleBinaries = append(consoleBinaries, b)
-			} else {
-				guiBinaries = append(guiBinaries, b)
-			}
-		}
-
-		if len(guiBinaries) > 0 {
-			selectedExe = LatestByVersion(guiBinaries)
-		} else {
-			selectedExe = LatestByVersion(consoleBinaries)
-		}
+	if len(guiFiles) > 0 {
+		selectedExe = guiFiles[0]
+	} else if len(consoleFiles) > 0 {
+		selectedExe = consoleFiles[0]
 	}
 
 	if selectedExe == "" {
@@ -109,7 +85,7 @@ func CmdLaunch() {
 		os.Exit(1)
 	}
 
-	exePath := filepath.Join(godotDir, selectedExe)
+	exePath := filepath.Join(godotDir, targetVersion.Version, selectedExe)
 
 	cmd := exec.Command(exePath, os.Args[1:]...)
 	cmd.Stdin = os.Stdin

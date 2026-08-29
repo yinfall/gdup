@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -122,8 +124,51 @@ func fetchJSON(url string, v interface{}) error {
 	return json.NewDecoder(resp.Body).Decode(v)
 }
 
+type repoCache struct {
+	LastFetch time.Time       `json:"last_fetch"`
+	Releases  []githubRelease `json:"releases"`
+}
+
+func fetchReleasesWithCache(repo string, forceUpdate bool) ([]githubRelease, bool, time.Time, error) {
+	cacheDir := filepath.Dir(GetGodotDir())
+	os.MkdirAll(cacheDir, 0755)
+
+	cacheFileName := strings.ReplaceAll(repo, "/", "_") + ".json"
+	cacheFile := filepath.Join(cacheDir, cacheFileName)
+
+	if !forceUpdate {
+		data, err := os.ReadFile(cacheFile)
+		if err == nil {
+			var cache repoCache
+			if json.Unmarshal(data, &cache) == nil {
+				if time.Since(cache.LastFetch) < 24*time.Hour {
+					return cache.Releases, true, cache.LastFetch, nil
+				}
+			}
+		}
+	}
+
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", repo)
+	var releases []githubRelease
+	if err := fetchJSON(url, &releases); err != nil {
+		return nil, false, time.Time{}, err
+	}
+
+	fetchTime := time.Now()
+	// Save to cache
+	cache := repoCache{
+		LastFetch: fetchTime,
+		Releases:  releases,
+	}
+	if data, err := json.MarshalIndent(cache, "", "  "); err == nil {
+		os.WriteFile(cacheFile, data, 0644)
+	}
+
+	return releases, false, fetchTime, nil
+}
+
 // CmdReleases lists available releases from GitHub.
-func CmdReleases(showAll bool) {
+func CmdReleases(showAll bool, forceUpdate bool) {
 	repo := "godotengine/godot"
 	label := "stable"
 	if showAll {
@@ -131,11 +176,14 @@ func CmdReleases(showAll bool) {
 		label = "all"
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", repo)
-	fmt.Printf("Fetching %s releases from GitHub (%s)...\n", label, repo)
+	if forceUpdate {
+		fmt.Printf("Forcing update for %s releases from GitHub (%s)...\n", label, repo)
+	} else {
+		fmt.Printf("Fetching %s releases from GitHub (%s)...\n", label, repo)
+	}
 
-	var releases []githubRelease
-	if err := fetchJSON(url, &releases); err != nil {
+	releases, isCached, lastFetch, err := fetchReleasesWithCache(repo, forceUpdate)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching releases: %v\n", err)
 		os.Exit(1)
 	}
@@ -144,9 +192,39 @@ func CmdReleases(showAll bool) {
 	var filtered []githubRelease
 	for _, r := range releases {
 		if showAll || strings.Contains(strings.ToLower(r.TagName), "stable") {
-			filtered = append(filtered, r)
+			hasNormal := false
+			hasMono := false
+			for _, a := range r.Assets {
+				name := strings.ToLower(a.Name)
+				if strings.Contains(name, "mono") {
+					hasMono = true
+				} else if !strings.Contains(name, "debug") {
+					hasNormal = true
+				}
+			}
+
+			if hasNormal {
+				filtered = append(filtered, r)
+			}
+			if hasMono {
+				monoR := r
+				monoR.TagName += "_mono"
+				filtered = append(filtered, monoR)
+			}
 		}
 	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		vi := ParseVersion(filtered[i].TagName)
+		vj := ParseVersion(filtered[j].TagName)
+		comp := CompareVersionInfo(vi, vj)
+		if comp == 0 {
+			// If versions are same, check mono vs normal
+			return filtered[i].TagName < filtered[j].TagName
+		}
+		// We want higher versions at the bottom, so return vi < vj
+		return comp < 0
+	})
 
 	if len(filtered) == 0 {
 		fmt.Printf("\nNo %s releases found.\n", label)
@@ -161,6 +239,8 @@ func CmdReleases(showAll bool) {
 
 	// Print each release
 	for _, r := range filtered {
+		isMono := strings.HasSuffix(r.TagName, "_mono")
+		
 		// Get version from tag
 		version, _ := parseVersionTag(r.TagName)
 
@@ -196,6 +276,11 @@ func CmdReleases(showAll bool) {
 		} else {
 			installCmd = fmt.Sprintf("install %s-%s", version, strings.ToLower(phase))
 		}
+		
+		if isMono {
+			installCmd += "_mono"
+			version += "_mono"
+		}
 
 		color := colorize(releaseType)
 		fmt.Printf("| %s%-14s%s | %s%-14s%s | %-18s |\n", color, version, resetColor, color, strings.ToUpper(phase), resetColor, installCmd)
@@ -203,4 +288,13 @@ func CmdReleases(showAll bool) {
 
 	// Print table footer
 	fmt.Println(border)
+
+	// Print Cache Status
+	if isCached {
+		hours := int(time.Since(lastFetch).Hours())
+		mins := int(time.Since(lastFetch).Minutes()) % 60
+		fmt.Printf("\n[ Loaded from local cache (Updated %dh %dm ago). Use 'gdup releases -u' to force refresh ]\n", hours, mins)
+	} else {
+		fmt.Printf("\n[ Fetched from cloud ]\n")
+	}
 }

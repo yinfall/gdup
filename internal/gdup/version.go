@@ -27,7 +27,7 @@ var statusOrder = map[string]int{
 	"dev":    1,
 }
 
-var versionRegex = regexp.MustCompile(`(?i)godot_v([0-9]+)\.([0-9]+)(?:\.([0-9]+))?(?:-([a-zA-Z0-9.]+))?`)
+var versionRegex = regexp.MustCompile(`([0-9]+)\.([0-9]+)(?:\.([0-9]+))?(?:-([a-zA-Z0-9.]+))?`)
 var versionStrRegex = regexp.MustCompile(`(?i)godot_v([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[a-zA-Z0-9.]+)?)(?:_|\.exe)`)
 var bareVersionRegex = regexp.MustCompile(`^\d+\.\d+(?:\.\d+)*$`)
 
@@ -70,11 +70,35 @@ func ParseVersionFromFilename(filename string) VersionInfo {
 	}
 }
 
-// NormalizeVersion adds -stable suffix to bare version numbers.
+// ParseVersion extracts version details from a version string (e.g. '4.3-stable' or '4.3-stable-mono').
+func ParseVersion(version string) VersionInfo {
+	// Treat -mono as a slightly higher patch or status? It doesn't matter much as long as it sorts properly.
+	// We can reuse ParseVersionFromFilename by mocking a filename.
+	mockFilename := "godot_v" + version + "_mock.exe"
+	info := ParseVersionFromFilename(mockFilename)
+	info.Original = version
+	return info
+}
+
+// NormalizeVersion adds -stable suffix to bare version numbers and preserves -mono suffix.
 func NormalizeVersion(version string) string {
 	tag := strings.TrimPrefix(version, "v")
+	isMono := false
+	lowerTag := strings.ToLower(tag)
+	if strings.HasSuffix(lowerTag, "-mono") {
+		isMono = true
+		tag = tag[:len(tag)-len("-mono")]
+	} else if strings.HasSuffix(lowerTag, "_mono") {
+		isMono = true
+		tag = tag[:len(tag)-len("_mono")]
+	}
+
 	if bareVersionRegex.MatchString(tag) {
 		tag = tag + "-stable"
+	}
+
+	if isMono {
+		tag = tag + "_mono"
 	}
 	return tag
 }
@@ -85,14 +109,33 @@ func NormalizeVersionTag(version string) string {
 	return strings.ToLower(v)
 }
 
-// VersionMatches checks if a version string matches a target (case-insensitive, ignoring -stable).
-func VersionMatches(v, target string) bool {
-	v = strings.ToLower(v)
+// MatchesTokens parses a query into tokens and checks if the target contains all of them.
+// By default, it ignores '-stable' in the target if the query didn't specifically ask for it.
+func MatchesTokens(target string, query string) bool {
 	target = strings.ToLower(target)
-	if v == target {
-		return true
+	query = strings.ToLower(query)
+
+	// If query doesn't specify stable, we can ignore stable in target for token matching purposes
+	if !strings.Contains(query, "stable") {
+		target = strings.ReplaceAll(target, "stable", "")
 	}
-	return strings.ReplaceAll(v, "-stable", "") == strings.ReplaceAll(target, "-stable", "")
+
+	// Mono exclusivity rule: if you didn't ask for mono, you shouldn't match mono!
+	if !strings.Contains(query, "mono") && strings.Contains(target, "mono") {
+		return false
+	}
+
+	tokens := regexp.MustCompile(`[\-_\s\.]+`).Split(query, -1)
+
+	for _, t := range tokens {
+		if t == "" || t == "v" || t == "godot" {
+			continue
+		}
+		if !strings.Contains(target, t) {
+			return false
+		}
+	}
+	return true
 }
 
 // CompareVersionInfo compares two VersionInfo for sorting.
@@ -195,4 +238,38 @@ func trailingDigits(s string) int {
 		return 0
 	}
 	return atoi(m)
+}
+
+// QueryBestMatch searches candidates for the best matching asset.
+// It applies token matching, mono-exclusivity, and optional platform filtering,
+// then sorts the results to return the highest version.
+func QueryBestMatch(candidates []string, query string, platform string) string {
+	var matches []string
+	for _, c := range candidates {
+		// MatchesTokens internally handles mono exclusivity (if query lacks 'mono', target must not have it)
+		if MatchesTokens(c, query) {
+			// Platform check
+			if platform == "" || strings.Contains(strings.ToLower(c), strings.ToLower(platform)) {
+				matches = append(matches, c)
+			}
+		}
+	}
+
+	if len(matches) == 0 {
+		return ""
+	}
+
+	// Sort matches descending (highest version first)
+	sort.Slice(matches, func(i, j int) bool {
+		vi := ParseVersion(matches[i])
+		vj := ParseVersion(matches[j])
+		comp := CompareVersionInfo(vi, vj)
+		if comp == 0 {
+			// Fallback to string comparison for completely identical versions
+			return matches[i] > matches[j]
+		}
+		return comp > 0
+	})
+
+	return matches[0]
 }

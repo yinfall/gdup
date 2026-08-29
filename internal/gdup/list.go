@@ -3,6 +3,8 @@ package gdup
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -20,25 +22,60 @@ func GetInstalledVersions(godotDir string) ([]InstalledVersion, error) {
 		return nil, fmt.Errorf("failed to read directory '%s': %w", godotDir, err)
 	}
 
-	groups := map[string][]string{}
+	var result []InstalledVersion
 	for _, e := range entries {
-		name := e.Name()
-		if strings.HasSuffix(strings.ToLower(name), ExeExtension()) && !e.IsDir() {
-			vInfo := ParseVersionFromFilename(name)
-			if vInfo.Original != "" {
-				groups[vInfo.Original] = append(groups[vInfo.Original], name)
+		if !e.IsDir() {
+			continue // skip files (should be migrated or ignored)
+		}
+		
+		versionName := e.Name()
+		versionDir := filepath.Join(godotDir, versionName)
+		
+		var files []string
+		
+		filepath.WalkDir(versionDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
+			
+			if d.IsDir() {
+				return nil
+			}
+
+			name := strings.ToLower(d.Name())
+			isExecutable := false
+
+			if runtime.GOOS == "windows" {
+				isExecutable = strings.HasSuffix(name, ".exe")
+			} else {
+				info, err := d.Info()
+				if err == nil && (info.Mode()&0111 != 0) {
+					isExecutable = true
+				}
+				if strings.Contains(name, "godot") && !strings.HasSuffix(name, ".pck") && !strings.HasSuffix(name, ".txt") && !strings.HasSuffix(name, ".md") {
+					isExecutable = true
+				}
+			}
+
+			if isExecutable {
+				relPath, _ := filepath.Rel(versionDir, path)
+				files = append(files, relPath)
+			}
+			return nil
+		})
+		
+		if len(files) > 0 {
+			result = append(result, InstalledVersion{Version: versionName, Files: files})
 		}
 	}
 
-	var result []InstalledVersion
-	for v, files := range groups {
-		result = append(result, InstalledVersion{Version: v, Files: files})
-	}
-
 	sort.Slice(result, func(i, j int) bool {
-		vi := ParseVersionFromFilename(result[i].Files[0])
-		vj := ParseVersionFromFilename(result[j].Files[0])
+		vi := ParseVersion(result[i].Version)
+		vj := ParseVersion(result[j].Version)
+		if CompareVersionInfo(vi, vj) == 0 {
+			// fallback to string compare
+			return result[i].Version > result[j].Version
+		}
 		return CompareVersionInfo(vi, vj) > 0
 	})
 
@@ -67,7 +104,7 @@ func CmdList() {
 
 	fmt.Printf("Installed versions in %s:\n", godotDir)
 	for _, iv := range installed {
-		isActive := VersionMatches(iv.Version, activeVersion)
+		isActive := activeVersion != "" && MatchesTokens(iv.Version, activeVersion)
 
 		activeLabel := ""
 		prefix := "    "

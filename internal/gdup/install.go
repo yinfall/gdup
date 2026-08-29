@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -22,68 +21,71 @@ func CmdInstall(version string) {
 	// Check if already installed
 	installed, _ := GetInstalledVersions(godotDir)
 	for _, iv := range installed {
-		if VersionMatches(iv.Version, tag) {
+		if MatchesTokens(iv.Version, tag) {
 			fmt.Printf("Version '%s' is already installed.\n", tag)
 			return
 		}
 	}
 
 	fmt.Printf("Searching for release '%s' on GitHub...\n", tag)
-	repo := getRepoForTag(tag)
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, tag)
-
-	var release githubRelease
-	if err := fetchJSON(url, &release); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Release '%s' not found or GitHub API error: %v\n", tag, err)
-		fmt.Fprintln(os.Stderr, "Please verify the version number. Use 'godot releases -a' to list all available versions.")
-		os.Exit(1)
+	
+	isMonoTarget := strings.HasSuffix(tag, "_mono")
+	githubTag := tag
+	if isMonoTarget {
+		githubTag = strings.TrimSuffix(tag, "_mono")
 	}
 
-	// Find suitable asset for current platform
+	repo := getRepoForTag(githubTag)
 	platformSuffix := PlatformSuffix()
 	var downloadURL, assetName string
 
-	for _, a := range release.Assets {
-		name := strings.ToLower(a.Name)
-		if strings.Contains(name, platformSuffix) &&
-			strings.HasSuffix(name, ".zip") &&
-			!strings.Contains(name, "mono") &&
-			!strings.Contains(name, "debug") {
-			if runtime.GOOS == "windows" {
-				if strings.HasSuffix(name, ".exe.zip") {
-					downloadURL = a.BrowserDownloadURL
-					assetName = a.Name
-					break
-				}
-			} else {
-				downloadURL = a.BrowserDownloadURL
-				assetName = a.Name
-				break
+	// 1. Try Cache First
+	releases, _, _, _ := fetchReleasesWithCache(repo, false)
+	assetMap := make(map[string]string)
+	var candidates []string
+
+	for _, r := range releases {
+		for _, a := range r.Assets {
+			name := a.Name
+			if strings.HasSuffix(strings.ToLower(name), ".zip") && !strings.Contains(strings.ToLower(name), "debug") {
+				candidates = append(candidates, name)
+				assetMap[name] = a.BrowserDownloadURL
 			}
 		}
 	}
 
-	// Fallback: for Windows, also accept non-.exe.zip
-	if downloadURL == "" && runtime.GOOS == "windows" {
+	bestMatch := QueryBestMatch(candidates, tag, platformSuffix)
+	if bestMatch != "" {
+		assetName = bestMatch
+		downloadURL = assetMap[bestMatch]
+	} else {
+		// 2. Fallback to API
+		url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, githubTag)
+		var release githubRelease
+		if err := fetchJSON(url, &release); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Release '%s' not found or GitHub API error: %v\n", githubTag, err)
+			fmt.Fprintln(os.Stderr, "Please verify the version number. Use 'godot releases -a' to list all available versions.")
+			os.Exit(1)
+		}
+		
+		var fbCandidates []string
 		for _, a := range release.Assets {
-			name := strings.ToLower(a.Name)
-			if strings.Contains(name, platformSuffix) &&
-				strings.HasSuffix(name, ".zip") &&
-				!strings.Contains(name, "mono") &&
-				!strings.Contains(name, "debug") {
-				downloadURL = a.BrowserDownloadURL
-				assetName = a.Name
-				break
+			name := a.Name
+			if strings.HasSuffix(strings.ToLower(name), ".zip") && !strings.Contains(strings.ToLower(name), "debug") {
+				fbCandidates = append(fbCandidates, name)
+				assetMap[name] = a.BrowserDownloadURL
 			}
+		}
+		
+		bestMatch = QueryBestMatch(fbCandidates, tag, platformSuffix)
+		if bestMatch != "" {
+			assetName = bestMatch
+			downloadURL = assetMap[bestMatch]
 		}
 	}
 
 	if downloadURL == "" {
 		fmt.Fprintf(os.Stderr, "Error: Could not find a suitable %s build in release '%s'.\n", platformSuffix, tag)
-		fmt.Fprintln(os.Stderr, "Available assets for this release:")
-		for _, a := range release.Assets {
-			fmt.Fprintf(os.Stderr, "  - %s\n", a.Name)
-		}
 		os.Exit(1)
 	}
 
@@ -96,7 +98,9 @@ func CmdInstall(version string) {
 	}
 
 	// Extract and install
-	if !extractZipAndClean(tempZipPath, godotDir) {
+	artifactName := strings.TrimSuffix(assetName, ".zip")
+	versionDir := filepath.Join(godotDir, artifactName)
+	if !extractZipAndClean(tempZipPath, versionDir, artifactName) {
 		os.Exit(1)
 	}
 
@@ -180,7 +184,7 @@ func downloadWithProgress(url, destPath string) bool {
 	return true
 }
 
-func extractZipAndClean(zipPath, extractDir string) bool {
+func extractZipAndClean(zipPath, extractDir, artifactName string) bool {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error opening zip: %v\n", err)
@@ -200,9 +204,10 @@ func extractZipAndClean(zipPath, extractDir string) bool {
 			continue
 		}
 
-		// Strip leading directory
+		// Smart strip: if the top-level directory exactly matches the artifact name (e.g. Godot_v4.3-stable_mono_win64),
+		// strip it to avoid double nesting. Otherwise, keep it (e.g. Godot.app, or flat files).
 		parts := strings.SplitN(name, string(filepath.Separator), 2)
-		if len(parts) == 2 {
+		if len(parts) == 2 && parts[0] == artifactName {
 			name = parts[1]
 		}
 

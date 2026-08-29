@@ -41,10 +41,15 @@ func main() {
 		gdup.CmdList()
 	case "releases", "release":
 		showAll := false
-		if len(os.Args) > 2 && (os.Args[2] == "-a" || os.Args[2] == "--all") {
-			showAll = true
+		update := false
+		for _, arg := range os.Args[2:] {
+			if arg == "-a" || arg == "--all" {
+				showAll = true
+			} else if arg == "-u" || arg == "--update" {
+				update = true
+			}
 		}
-		gdup.CmdReleases(showAll)
+		gdup.CmdReleases(showAll, update)
 	case "install":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "Error: Please specify the version to install. E.g.: gdup install 4.3")
@@ -88,7 +93,7 @@ func printHelp() {
 Usage:
   gdup install <version>           Download and install a specific Godot version (e.g. 4.3)
   gdup list | ls                   Show locally installed Godot versions in %s
-  gdup releases [-a]               List available releases from GitHub (-a/--all for pre-releases)
+  gdup releases [-a] [-u]          List available releases from GitHub (-a for all, -u to force update cache)
   gdup use <version>               Set the active Godot version for the current directory
   gdup uninstall <version> [-y]    Uninstall a locally installed version
   gdup godot [args...]             Run the active Godot version (similar to fvm flutter)

@@ -25,7 +25,7 @@ func CmdUninstall(version string, force bool) {
 
 	var matched *InstalledVersion
 	for i := range installed {
-		if VersionMatches(installed[i].Version, tag) {
+		if MatchesTokens(installed[i].Version, tag) {
 			matched = &installed[i]
 			break
 		}
@@ -38,15 +38,13 @@ func CmdUninstall(version string, force bool) {
 
 	// Warn if active
 	activeVersion := GetActiveVersion()
-	if VersionMatches(matched.Version, activeVersion) {
+	if activeVersion != "" && MatchesTokens(matched.Version, activeVersion) {
 		configPath := FindGvmConfig()
 		fmt.Printf("Warning: '%s' is currently the active version in '%s'.\n", matched.Version, configPath)
 	}
 
-	fmt.Println("The following files will be removed:")
-	for _, f := range matched.Files {
-		fmt.Printf("  - %s\n", f)
-	}
+	fmt.Println("The following version directory will be removed:")
+	fmt.Printf("  - %s\n", filepath.Join(godotDir, matched.Version))
 
 	if !force {
 		fmt.Printf("\nUninstall Godot %s? [y/N] ", matched.Version)
@@ -58,17 +56,9 @@ func CmdUninstall(version string, force bool) {
 		}
 	}
 
-	hasError := false
-	for _, f := range matched.Files {
-		p := filepath.Join(godotDir, f)
-		if err := os.Remove(p); err != nil {
-			fmt.Fprintf(os.Stderr, "  - %s: %v\n", f, err)
-			hasError = true
-		}
-	}
-
-	if hasError {
-		fmt.Fprintln(os.Stderr, "Some files could not be deleted.")
+	p := filepath.Join(godotDir, matched.Version)
+	if err := os.RemoveAll(p); err != nil {
+		fmt.Fprintf(os.Stderr, "Error removing directory: %v\n", err)
 		os.Exit(1)
 	}
 

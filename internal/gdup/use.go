@@ -24,7 +24,7 @@ func CmdUse(version string) {
 
 	var matched *InstalledVersion
 	for i := range installed {
-		if VersionMatches(installed[i].Version, tag) {
+		if MatchesTokens(installed[i].Version, tag) {
 			matched = &installed[i]
 			break
 		}
