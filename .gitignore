@@ -1,8 +1,21 @@
-godot-versions/
-godot
-godot.exe
-.gduprc
-.pi/
-go.mod.bak
+# Executables
 gdup
 gdup.exe
+godot
+godot.exe
+
+# Local configs and caches
+.gduprc
+godot-versions/
+versions/
+
+# IDE & OS
+.pi/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Go test files
+*.test
+*.out
+go.mod.bak
