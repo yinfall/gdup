@@ -66,16 +66,17 @@ func colorize(releaseType string) string {
 	case "beta":
 		return "\033[34m" // Blue
 	case "dev":
-		return "\033[31m" // Red
+		return redColor   // Red
 	case "alpha":
 		return "\033[35m" // Magenta
 	default:
-		return "\033[0m" // Reset
+		return resetColor // Reset
 	}
 }
 
 const (
 	resetColor = "\033[0m"
+	redColor   = "\033[31m"
 	border     = "+----------------+----------------+--------------------+"
 	separator   = "|" + "----------------" + "|" + "----------------" + "|" + "--------------------" + "|"
 )
@@ -147,12 +148,16 @@ func fetchReleasesWithCache(repo string, forceUpdate bool) ([]githubRelease, boo
 	}
 
 	var releases []githubRelease
-	for page := 1; ; page++ {
+	complete := true
+	const maxPages = 50
+	for page := 1; page <= maxPages; page++ {
 		url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100&page=%d", repo, page)
 		var pageReleases []githubRelease
 		if err := fetchJSON(url, &pageReleases); err != nil {
-			// If we already fetched some pages and hit an error (e.g. rate limit), keep what we have
+			// If we already fetched some pages and hit an error (e.g. rate limit), keep what we have but don't cache partial data
 			if page > 1 && len(releases) > 0 {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to fetch all release pages (%v). Using partial results without updating cache.\n", err)
+				complete = false
 				break
 			}
 			return nil, false, time.Time{}, err
@@ -171,13 +176,15 @@ func fetchReleasesWithCache(repo string, forceUpdate bool) ([]githubRelease, boo
 	}
 
 	fetchTime := time.Now()
-	// Save to cache
-	cache := repoCache{
-		LastFetch: fetchTime,
-		Releases:  releases,
-	}
-	if data, err := json.MarshalIndent(cache, "", "  "); err == nil {
-		os.WriteFile(cacheFile, data, 0644)
+	// Only save to cache if we got a complete fetch
+	if complete {
+		cache := repoCache{
+			LastFetch: fetchTime,
+			Releases:  releases,
+		}
+		if data, err := json.MarshalIndent(cache, "", "  "); err == nil {
+			os.WriteFile(cacheFile, data, 0644)
+		}
 	}
 
 	return releases, false, fetchTime, nil
@@ -312,13 +319,8 @@ func CmdReleases(showAll bool, forceUpdate bool) {
 		if time.Since(lastFetch) >= 24*time.Hour {
 			days := hours / 24
 			remHours := hours % 24
-			var timeStr string
-			if days > 0 {
-				timeStr = fmt.Sprintf("%dd %dh ago", days, remHours)
-			} else {
-				timeStr = fmt.Sprintf("%dh %dm ago", hours, mins)
-			}
-			fmt.Printf("\n\033[31m[ Notice: Local cache is outdated (Last updated %s). Run 'gdup releases -u' to refresh from cloud. ]\033[0m\n", timeStr)
+			timeStr := fmt.Sprintf("%dd %dh ago", days, remHours)
+			fmt.Printf("\n%s[ Notice: Local cache is outdated (Last updated %s). Run 'gdup releases -u' to refresh from cloud. ]%s\n", redColor, timeStr, resetColor)
 		} else {
 			fmt.Printf("\n[ Loaded from local cache (Updated %dh %dm ago). Use 'gdup releases -u' to force refresh ]\n", hours, mins)
 		}
