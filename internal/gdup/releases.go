@@ -140,18 +140,34 @@ func fetchReleasesWithCache(repo string, forceUpdate bool) ([]githubRelease, boo
 		data, err := os.ReadFile(cacheFile)
 		if err == nil {
 			var cache repoCache
-			if json.Unmarshal(data, &cache) == nil {
-				if time.Since(cache.LastFetch) < 24*time.Hour {
-					return cache.Releases, true, cache.LastFetch, nil
-				}
+			if json.Unmarshal(data, &cache) == nil && len(cache.Releases) > 0 {
+				return cache.Releases, true, cache.LastFetch, nil
 			}
 		}
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", repo)
 	var releases []githubRelease
-	if err := fetchJSON(url, &releases); err != nil {
-		return nil, false, time.Time{}, err
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100&page=%d", repo, page)
+		var pageReleases []githubRelease
+		if err := fetchJSON(url, &pageReleases); err != nil {
+			// If we already fetched some pages and hit an error (e.g. rate limit), keep what we have
+			if page > 1 && len(releases) > 0 {
+				break
+			}
+			return nil, false, time.Time{}, err
+		}
+
+		if len(pageReleases) == 0 {
+			break
+		}
+
+		releases = append(releases, pageReleases...)
+
+		// If the page returned fewer than 100 items, we have reached the last page
+		if len(pageReleases) < 100 {
+			break
+		}
 	}
 
 	fetchTime := time.Now()
@@ -293,7 +309,19 @@ func CmdReleases(showAll bool, forceUpdate bool) {
 	if isCached {
 		hours := int(time.Since(lastFetch).Hours())
 		mins := int(time.Since(lastFetch).Minutes()) % 60
-		fmt.Printf("\n[ Loaded from local cache (Updated %dh %dm ago). Use 'gdup releases -u' to force refresh ]\n", hours, mins)
+		if time.Since(lastFetch) >= 24*time.Hour {
+			days := hours / 24
+			remHours := hours % 24
+			var timeStr string
+			if days > 0 {
+				timeStr = fmt.Sprintf("%dd %dh ago", days, remHours)
+			} else {
+				timeStr = fmt.Sprintf("%dh %dm ago", hours, mins)
+			}
+			fmt.Printf("\n\033[31m[ Notice: Local cache is outdated (Last updated %s). Run 'gdup releases -u' to refresh from cloud. ]\033[0m\n", timeStr)
+		} else {
+			fmt.Printf("\n[ Loaded from local cache (Updated %dh %dm ago). Use 'gdup releases -u' to force refresh ]\n", hours, mins)
+		}
 	} else {
 		fmt.Printf("\n[ Fetched from cloud ]\n")
 	}
