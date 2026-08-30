@@ -50,7 +50,7 @@ func RunInteractiveLicenseCLI() {
 		}
 
 		var choice int
-		_, err := fmt.Sscanf(input, "%d", &choice)
+		_, err = fmt.Sscanf(input, "%d", &choice)
 		if err != nil || choice < 0 || choice > len(entries) {
 			fmt.Println("\n[!] Invalid input. Please enter a valid number or 'q' to quit.")
 			continue
