@@ -69,3 +69,6 @@ gdup shim remove
 
 ## 📄 许可证
 本项目采用 [MIT License](LICENSE) 授权协议。
+
+### 致谢
+本项目引用了一些优秀的开源库。关于第三方依赖库的详细开源授权协议，请在终端中运行 `gdup license` 进行查阅。

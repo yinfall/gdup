@@ -69,3 +69,6 @@ For details on GDUP's underlying directory sniffing mechanism, Monolithic Applic
 
 ## 📄 License
 This project is licensed under the [MIT License](LICENSE).
+
+### Acknowledgements
+This software contains third-party open source software components. For detailed licensing information, please run `gdup license` in your terminal.

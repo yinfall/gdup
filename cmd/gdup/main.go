@@ -80,6 +80,8 @@ func main() {
 			os.Exit(1)
 		}
 		gdup.CmdShim(os.Args[2])
+	case "license", "licenses":
+		gdup.CmdLicense()
 	default:
 		fmt.Fprintf(os.Stderr, "gdup: unknown command '%s'\nRun 'gdup help' for usage.\n", first)
 		os.Exit(1)
@@ -101,6 +103,9 @@ Usage:
 Shim Management:
   gdup shim install                Enable transparent proxying (allows you to just type 'godot')
   gdup shim remove                 Disable transparent proxying (removes the shim executable)
+
+Other:
+  gdup license                     View third-party open source licenses
 
   gdup --version                   Show GDUP version
 `, gdup.GDUPVersion, godotDir)

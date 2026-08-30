@@ -8,3 +8,5 @@ Thumbs.db
 *.test
 *.out
 
+bin/
+*.exe
