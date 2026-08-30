@@ -72,3 +72,36 @@ func TestQueryBestMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestParseInstalledVersion(t *testing.T) {
+	tests := []struct {
+		input       string
+		expectedVer string
+		expectedTyp string
+		expectedPh  string
+	}{
+		{"Godot_v4.3-stable_win64", "4.3", "stable", "stable"},
+		{"Godot_v4.3-stable_mono_win64", "4.3_mono", "stable", "stable"},
+		{"Godot_v4.4-dev2_linux.x86_64", "4.4-dev2", "dev", "dev2"},
+		{"Godot_v4.4-dev2_mono_linux.x86_64", "4.4-dev2_mono", "dev", "dev2"},
+		{"Godot_v4.3.1-rc1_win64", "4.3.1-rc1", "rc", "rc1"},
+		{"4.3.0-stable", "4.3", "stable", "stable"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			ver, typ, ph := parseInstalledVersion(tc.input)
+			if ver != tc.expectedVer || typ != tc.expectedTyp || ph != tc.expectedPh {
+				t.Errorf("parseInstalledVersion(%q) = (%q, %q, %q), expected (%q, %q, %q)",
+					tc.input, ver, typ, ph, tc.expectedVer, tc.expectedTyp, tc.expectedPh)
+			}
+		})
+	}
+}
+
+func TestTableWriter(t *testing.T) {
+	table := newTable([]string{"VERSION", "TYPE", "COMMAND"})
+	table.Append([]string{colorize("stable") + "4.3" + resetColor, colorize("stable") + "STABLE" + resetColor, "install 4.3"})
+	table.Append([]string{colorize("dev") + "* 4.0-alpha1_mono" + resetColor, colorize("dev") + "ALPHA1" + resetColor, "install 4.0-alpha1_mono"})
+	table.Render()
+}

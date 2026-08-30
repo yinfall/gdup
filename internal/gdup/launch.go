@@ -56,7 +56,7 @@ func CmdLaunch() {
 			}
 		}
 	} else {
-		targetVersion = &installed[0]
+		targetVersion = &installed[len(installed)-1]
 	}
 
 	if targetVersion == nil {

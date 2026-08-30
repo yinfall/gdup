@@ -72,14 +72,46 @@ func GetInstalledVersions(godotDir string) ([]InstalledVersion, error) {
 	sort.Slice(result, func(i, j int) bool {
 		vi := ParseVersion(result[i].Version)
 		vj := ParseVersion(result[j].Version)
-		if CompareVersionInfo(vi, vj) == 0 {
+		comp := CompareVersionInfo(vi, vj)
+		if comp == 0 {
 			// fallback to string compare
-			return result[i].Version > result[j].Version
+			return result[i].Version < result[j].Version
 		}
-		return CompareVersionInfo(vi, vj) > 0
+		return comp < 0
 	})
 
 	return result, nil
+}
+
+func parseInstalledVersion(raw string) (string, string, string) {
+	releaseType, phase := parseAssetFilename(raw)
+	isMono := strings.Contains(strings.ToLower(raw), "mono")
+
+	vi := ParseVersionFromFilename(raw)
+	var verNum string
+	if vi.Major > 0 {
+		if vi.Patch > 0 {
+			verNum = fmt.Sprintf("%d.%d.%d", vi.Major, vi.Minor, vi.Patch)
+		} else {
+			verNum = fmt.Sprintf("%d.%d", vi.Major, vi.Minor)
+		}
+	} else {
+		verNum, _ = parseVersionTag(raw)
+	}
+
+	if phase != "" && phase != "stable" && !strings.Contains(verNum, phase) {
+		verNum = fmt.Sprintf("%s-%s", verNum, strings.ToLower(phase))
+	}
+
+	if isMono && !strings.HasSuffix(verNum, "_mono") {
+		verNum += "_mono"
+	}
+
+	if phase == "" {
+		phase = releaseType
+	}
+
+	return verNum, releaseType, phase
 }
 
 // CmdList shows locally installed Godot versions.
@@ -102,39 +134,25 @@ func CmdList() {
 
 	activeVersion := GetActiveVersion()
 
-	fmt.Printf("Installed versions in %s:\n", godotDir)
+	fmt.Printf("\nInstalled versions in %s:\n\n", godotDir)
+	table := newTable([]string{"VERSION", "TYPE", "FULL NAME"})
+
 	for _, iv := range installed {
-		isActive := activeVersion != "" && MatchesTokens(iv.Version, activeVersion)
+		verNum, releaseType, phase := parseInstalledVersion(iv.Version)
+		isActive := activeVersion != "" && (strings.EqualFold(iv.Version, activeVersion) || MatchesTokens(iv.Version, activeVersion))
 
-		activeLabel := ""
-		prefix := "    "
+		versionDisplay := "  " + verNum
 		if isActive {
-			activeLabel = " (active)"
-			prefix = "  * "
+			versionDisplay = "* " + verNum
 		}
 
-		hasConsole := false
-		hasGUI := false
-		for _, f := range iv.Files {
-			if strings.Contains(strings.ToLower(f), "_console") {
-				hasConsole = true
-			} else {
-				hasGUI = true
-			}
-		}
-
-		var types []string
-		if hasGUI {
-			types = append(types, "GUI")
-		}
-		if hasConsole {
-			types = append(types, "Console")
-		}
-		typesStr := ""
-		if len(types) > 0 {
-			typesStr = " [" + strings.Join(types, ", ") + "]"
-		}
-
-		fmt.Printf("%s%s%s%s\n", prefix, iv.Version, typesStr, activeLabel)
+		color := colorize(releaseType)
+		table.Append([]string{
+			color + versionDisplay + resetColor,
+			color + strings.ToUpper(phase) + resetColor,
+			iv.Version,
+		})
 	}
+
+	table.Render()
 }

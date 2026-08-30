@@ -9,7 +9,14 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/olekukonko/tablewriter"
 )
+
+// newTable initializes a standardized CLI table with consistent borders and alignment.
+func newTable(headers []string) *tablewriter.Table {
+	return tablewriter.NewTable(os.Stdout, tablewriter.WithHeader(headers))
+}
 
 // parseAssetFilename extracts release type and phase from an asset filename.
 // Examples:
@@ -77,8 +84,6 @@ func colorize(releaseType string) string {
 const (
 	resetColor = "\033[0m"
 	redColor   = "\033[31m"
-	border     = "+----------------+----------------+--------------------+"
-	separator   = "|" + "----------------" + "|" + "----------------" + "|" + "--------------------" + "|"
 )
 
 // githubRelease represents a GitHub release.
@@ -254,11 +259,9 @@ func CmdReleases(showAll bool, forceUpdate bool) {
 		return
 	}
 
-	// Print table header
+	// Print table
 	fmt.Printf("\nAvailable %s releases:\n\n", label)
-	fmt.Println(border)
-	fmt.Printf("| %-14s | %-14s | %-18s |\n", "VERSION", "TYPE", "COMMAND")
-	fmt.Println(separator)
+	table := newTable([]string{"VERSION", "TYPE", "COMMAND"})
 
 	// Print each release
 	for _, r := range filtered {
@@ -306,11 +309,14 @@ func CmdReleases(showAll bool, forceUpdate bool) {
 		}
 
 		color := colorize(releaseType)
-		fmt.Printf("| %s%-14s%s | %s%-14s%s | %-18s |\n", color, version, resetColor, color, strings.ToUpper(phase), resetColor, installCmd)
+		table.Append([]string{
+			color + version + resetColor,
+			color + strings.ToUpper(phase) + resetColor,
+			installCmd,
+		})
 	}
 
-	// Print table footer
-	fmt.Println(border)
+	table.Render()
 
 	// Print Cache Status
 	if isCached {
