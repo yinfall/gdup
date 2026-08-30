@@ -10,10 +10,17 @@ if (-not (Test-Path $installDir)) {
 }
 
 $output = [System.IO.Path]::Combine($installDir, "gdup.exe")
+$outputOld = [System.IO.Path]::Combine($installDir, "gdup.exe.old")
+$outputTmp = [System.IO.Path]::Combine($installDir, "gdup.exe.tmp")
 
 Write-Host "Building gdup to $installDir..." -ForegroundColor Cyan
-go build -ldflags $ldflags -trimpath -o $output ./cmd/gdup
+go build -ldflags $ldflags -trimpath -o $outputTmp ./cmd/gdup
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# Prevent 'File in use' error if gdup is currently running
+if (Test-Path $outputOld) { Remove-Item -Path $outputOld -Force -ErrorAction Ignore }
+if (Test-Path $output) { Rename-Item -Path $output -NewName "gdup.exe.old" -Force -ErrorAction Ignore }
+Rename-Item -Path $outputTmp -NewName "gdup.exe" -Force -ErrorAction Stop
 
 Write-Host ""
 Get-ChildItem $output | Select-Object Name, @{N='Size (MB)';E={'{0:N2}' -f ($_.Length/1MB)}} | Format-Table -AutoSize

@@ -45,11 +45,54 @@ echo "Downloading gdup ${LATEST_TAG} for ${OS}-${ARCH}..."
 mkdir -p "$INSTALL_DIR"
 
 if [ "$OS" = "windows" ]; then
-    curl -L -o "${INSTALL_DIR}/gdup.exe" "$DOWNLOAD_URL"
-    chmod +x "${INSTALL_DIR}/gdup.exe" 2>/dev/null || true
+    TMP_BIN="${INSTALL_DIR}/gdup.exe.tmp"
+    FINAL_BIN="${INSTALL_DIR}/gdup.exe"
+    OLD_BIN="${INSTALL_DIR}/gdup.exe.old"
+
+    if ! curl -fsSL -o "$TMP_BIN" "$DOWNLOAD_URL"; then
+        echo "Error: Failed to download binary."
+        rm -f "$TMP_BIN"
+        exit 1
+    fi
+    
+    rm -f "$OLD_BIN" || true
+    RENAMED_OLD=0
+    if [ -f "$FINAL_BIN" ]; then
+        if mv "$FINAL_BIN" "$OLD_BIN" 2>/dev/null; then
+            RENAMED_OLD=1
+        else
+            echo "Error: Failed to rename running binary. Is it currently locked by the OS?"
+            rm -f "$TMP_BIN"
+            exit 1
+        fi
+    fi
+    
+    if ! mv "$TMP_BIN" "$FINAL_BIN" 2>/dev/null; then
+        echo "Error: Failed to place the new executable."
+        if [ "$RENAMED_OLD" = 1 ]; then
+            mv "$OLD_BIN" "$FINAL_BIN" 2>/dev/null || true
+        fi
+        rm -f "$TMP_BIN"
+        exit 1
+    fi
+    
+    chmod +x "$FINAL_BIN" 2>/dev/null || true
 else
-    curl -L -o "${INSTALL_DIR}/gdup" "$DOWNLOAD_URL"
-    chmod +x "${INSTALL_DIR}/gdup"
+    TMP_BIN="${INSTALL_DIR}/gdup.tmp"
+    FINAL_BIN="${INSTALL_DIR}/gdup"
+
+    if ! curl -fsSL -o "$TMP_BIN" "$DOWNLOAD_URL"; then
+        echo "Error: Failed to download binary."
+        rm -f "$TMP_BIN"
+        exit 1
+    fi
+    chmod +x "$TMP_BIN"
+
+    if ! mv "$TMP_BIN" "$FINAL_BIN"; then
+        echo "Error: Failed to update binary."
+        rm -f "$TMP_BIN"
+        exit 1
+    fi
 fi
 
 echo ""

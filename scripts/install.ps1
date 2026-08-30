@@ -22,11 +22,41 @@ if (-not (Test-Path $InstallDir)) {
 }
 
 $ExePath = [System.IO.Path]::Combine($InstallDir, "gdup.exe")
+$OldExePath = [System.IO.Path]::Combine($InstallDir, "gdup.exe.old")
+$TempExePath = [System.IO.Path]::Combine($InstallDir, "gdup.exe.tmp")
 
 Try {
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $ExePath
+    # Remove previous .old file if it exists
+    if (Test-Path $OldExePath) {
+        Remove-Item -Path $OldExePath -Force -ErrorAction Ignore
+    }
+
+    # Download to a temporary file
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempExePath
+
+    # Rename existing executable if it's there (Windows allows renaming running files)
+    $renamedOld = $false
+    if (Test-Path $ExePath) {
+        Rename-Item -Path $ExePath -NewName "gdup.exe.old" -Force
+        $renamedOld = $true
+    }
+
+    # Move the new downloaded file into place
+    Try {
+        Rename-Item -Path $TempExePath -NewName "gdup.exe" -Force
+    } Catch {
+        # Rollback: if we renamed the old one, put it back so the app isn't broken
+        if ($renamedOld) {
+            Rename-Item -Path $OldExePath -NewName "gdup.exe" -Force -ErrorAction Ignore
+        }
+        throw $_ # Rethrow to outer catch
+    }
 } Catch {
-    Write-Error "Failed to download binary from $DownloadUrl"
+    Write-Error "Failed to download or install binary: $_"
+    # Cleanup temporary file if it exists
+    if (Test-Path $TempExePath) {
+        Remove-Item -Path $TempExePath -Force -ErrorAction Ignore
+    }
     exit 1
 }
 
