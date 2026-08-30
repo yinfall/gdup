@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/user/gdup/internal/sysutil"
+	"github.com/yinfall/gdup/internal/sysutil"
 )
 
 

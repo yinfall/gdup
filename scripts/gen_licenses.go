@@ -77,6 +77,11 @@ func main() {
 				return err
 			}
 			
+			// Filter out the project itself since we handle it separately at index 0
+			if dirPath == "github.com/yinfall/gdup" {
+				return nil
+			}
+
 			// Quote the content properly for Go string literal
 			quotedContent := fmt.Sprintf("%#v", string(content))
 			

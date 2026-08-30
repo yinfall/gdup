@@ -1,7 +1,7 @@
 package gdup
 
 import (
-	"github.com/user/gdup/internal/licenses"
+	"github.com/yinfall/gdup/internal/licenses"
 )
 
 func CmdLicense() {
